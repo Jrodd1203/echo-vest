@@ -50,12 +50,12 @@ elevenlabs_client = ElevenLabs(api_key=os.environ['ELEVENLABS_API_KEY'])
 
 def speak(text: str) -> None:
     """Speak text aloud using ElevenLabs TTS via elevenlabs.play()."""
-    audio = elevenlabs_client.text_to_speech.convert(
+    audio_stream = elevenlabs_client.text_to_speech.stream(
         voice_id='JBFqnCBsd6RMkjVDRZzb',
         model_id='eleven_turbo_v2_5',
         text=text,
     )
-    stream(audio)
+    stream(audio_stream)
 
 
 # ── Direction logic ──────────────────────────────────────────────────────────
