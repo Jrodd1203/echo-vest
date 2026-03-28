@@ -1,20 +1,20 @@
-import asyncio
 import os
 import threading
 
-import websockets
 import speech_recognition as sr
-import google.generativeai as genai
+from google import genai
 from elevenlabs.client import ElevenLabs
 from elevenlabs import play
 from dotenv import load_dotenv
 
-from shared import current_detections
+try:
+    from shared import current_detections
+except ImportError:
+    current_detections: list[str] = []  # TODO: remove once Jaden adds this to shared.py
 
 load_dotenv()
 
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 elevenlabs_client = ElevenLabs(api_key=os.environ["ELEVENLABS_API_KEY"])
 
@@ -51,24 +51,30 @@ Current detections: {detections}
 User asked: '{question}'
 Respond in 1-2 natural sentences.
 """
-    response = gemini_model.generate_content(prompt)
+    response = gemini_client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
+    )
     return response.text
 
 
-async def voice_handler(ws: websockets.ServerConnection) -> None:
-    """Handle incoming WebSocket messages — fires mic + Gemini + TTS when ESP32 sends 'LISTEN'."""
-    async for message in ws:
-        if message == "LISTEN":
+def voice_loop() -> None:
+    """Continuously listen for speech, ask Gemini, and speak the response."""
+    print("Voice loop started — listening for speech...")
+    while True:
+        try:
             text = listen_once()
             if text:
+                print(f"You said: {text}")
                 reply = ask_gemini(current_detections, text)
+                print(f"Gemini: {reply}")
                 speak(reply)
+        except Exception as e:
+            print(f"Voice loop error: {e}")
 
 
-def voice_thread_fn() -> None:
-    """Entry point for the background voice thread — runs the WebSocket server on port 8766."""
-    asyncio.run(websockets.serve(voice_handler, "0.0.0.0", 8766))
-
-
-voice_thread = threading.Thread(target=voice_thread_fn, daemon=True)
+voice_thread = threading.Thread(target=voice_loop, daemon=True)
 voice_thread.start()
+
+if __name__ == "__main__":
+    voice_thread.join()
