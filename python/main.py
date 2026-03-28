@@ -13,7 +13,7 @@ import time
 import cv2
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
-from elevenlabs import play
+from elevenlabs import stream
 from ultralytics import YOLO
 import websockets
 
@@ -55,7 +55,7 @@ def speak(text: str) -> None:
         model_id='eleven_turbo_v2_5',
         text=text,
     )
-    play(audio)
+    stream(audio)
 
 
 # ── Direction logic ──────────────────────────────────────────────────────────
