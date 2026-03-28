@@ -58,16 +58,16 @@ def listen_once() -> str | None:
 
 def ask_openai_streaming(detections: list, question: str) -> str:
     """Stream GPT-4o mini response and return the full text (for logging)."""
-    prompt = f"""You help blind people navigate safely.
+    prompt = f"""You help blind people navigate safely. Be extremely brief.
 Current detections: {detections}
 User asked: '{question}'
-Respond in 1-2 natural sentences."""
+Respond in one short sentence, 10 words max."""
 
     stream_response = openai_client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
         stream=True,
-        max_tokens=80,
+        max_tokens=30,
     )
 
     full_reply = ""
