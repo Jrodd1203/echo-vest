@@ -14,7 +14,8 @@ import time
 import cv2
 import pygame
 from dotenv import load_dotenv
-from openai import OpenAI
+from elevenlabs.client import ElevenLabs
+from elevenlabs import play
 from ultralytics import YOLO
 import websockets
 
@@ -48,18 +49,14 @@ motor_clients: set = set()
 # ── TTS — Jacob imports this. Never rename or remove. ────────────────────────
 
 def speak(text: str) -> None:
-    """Speak text aloud using OpenAI TTS (nova voice) via pygame audio."""
-    client = OpenAI()  # initialized here so missing API key doesn't block YOLO startup
-    response = client.audio.speech.create(
-        model='tts-1',
-        voice='nova',
-        input=text,
+    """Speak text aloud using ElevenLabs TTS via elevenlabs.play()."""
+    client = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
+    audio = client.text_to_speech.convert(
+        voice_id='JBFqnCBsd6RMkjVDRZzb',
+        model_id='eleven_turbo_v2_5',
+        text=text,
     )
-    pygame.mixer.init()
-    pygame.mixer.music.load(io.BytesIO(response.content))
-    pygame.mixer.music.play()
-    while pygame.mixer.music.get_busy():
-        pygame.time.Clock().tick(10)
+    play(audio)
 
 
 # ── Direction logic ──────────────────────────────────────────────────────────
