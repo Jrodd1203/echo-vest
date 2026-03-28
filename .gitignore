@@ -205,3 +205,23 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+# Secrets — never commit these
+.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# PlatformIO
+.pio/
+build/
+
+# Mac
+.DS_Store
+
+# VS Code
+.vscode/settings.json
