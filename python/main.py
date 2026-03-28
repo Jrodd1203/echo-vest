@@ -6,13 +6,11 @@ DO NOT edit: voice.py, shared.py, config.py
 speak() is imported by Jacob — never rename or remove it.
 """
 import asyncio
-import io
 import json
 import os
 import time
 
 import cv2
-import pygame
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
 from elevenlabs import play
@@ -20,7 +18,6 @@ from ultralytics import YOLO
 import websockets
 
 load_dotenv()
-os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 
 # ── Shared constants + state from Jaden's files ──────────────────────────────
 # These imports work once Jaden creates config.py and shared.py.
@@ -48,10 +45,12 @@ motor_clients: set = set()
 
 # ── TTS — Jacob imports this. Never rename or remove. ────────────────────────
 
+elevenlabs_client = ElevenLabs(api_key=os.environ['ELEVENLABS_API_KEY'])
+
+
 def speak(text: str) -> None:
     """Speak text aloud using ElevenLabs TTS via elevenlabs.play()."""
-    client = ElevenLabs(api_key=os.getenv('ELEVENLABS_API_KEY'))
-    audio = client.text_to_speech.convert(
+    audio = elevenlabs_client.text_to_speech.convert(
         voice_id='JBFqnCBsd6RMkjVDRZzb',
         model_id='eleven_turbo_v2_5',
         text=text,
