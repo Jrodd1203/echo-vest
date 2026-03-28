@@ -24,7 +24,7 @@ r = sr.Recognizer()
 def speak(text: str) -> None:
     """Convert text to speech using ElevenLabs and play it back."""
     audio = elevenlabs_client.text_to_speech.convert(
-        voice_id="JBFqnCBsd6RMkjVDRZzb",  # Rachel — swap voice_id as needed
+        voice_id="JBFqnCBsd6RMkjVDRZzb",
         model_id="eleven_turbo_v2_5",
         text=text,
     )

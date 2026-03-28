@@ -165,4 +165,5 @@ async def main() -> None:
 
 
 if __name__ == '__main__':
+    import voice  # noqa: F401 — imported for side effect (starts voice WS thread on port 8766)
     asyncio.run(main())
