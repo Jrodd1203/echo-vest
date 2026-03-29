@@ -24,7 +24,9 @@ load_dotenv()
 # The fallback values below let you run solo in the meantime.
 try:
     from config import (ESP32_CAM_IP, MOTOR_WS_PORT, YOLO_CONF, COOLDOWN_SECONDS,
-                        OBSTACLE_CLASSES, HIGH_PRIORITY_CLASSES)
+                        OBSTACLE_CLASSES, HIGH_PRIORITY_CLASSES,
+                        PROXIMITY_THRESHOLD, HIGH_PRIORITY_CONF, OBSTACLE_CONF,
+                        PERSISTENCE_FRAMES)
     from shared import current_detections
 except ImportError:
     # TODO: Remove these once Jaden creates config.py and shared.py
@@ -35,8 +37,8 @@ except ImportError:
 model = YOLO('yolov8n.pt')
 
 # Using webcam for now — swap to ESP32-CAM URL once Jaden gives you the IP:
-cap = cv2.VideoCapture(f'http://{ESP32_CAM_IP}/stream')
-#cap = cv2.VideoCapture(0)
+#cap = cv2.VideoCapture(f'http://{ESP32_CAM_IP}/stream')
+cap = cv2.VideoCapture(0)
 
 motor_clients: set = set()
 
@@ -84,6 +86,18 @@ def get_direction(cx: float, frame_width: int) -> str:
         return 'right'
 
 
+def is_close_enough(x1: int, y1: int, x2: int, y2: int,
+                    frame_width: int, frame_height: int) -> bool:
+    """Return True if bounding box occupies at least PROXIMITY_THRESHOLD of frame area.
+
+    Compares box area (pixels²) against total frame area scaled by PROXIMITY_THRESHOLD.
+    Keeps motors quiet for tiny far-away detections that pose no immediate hazard.
+    """
+    box_area = (x2 - x1) * (y2 - y1)
+    frame_area = frame_width * frame_height
+    return box_area >= PROXIMITY_THRESHOLD * frame_area
+
+
 # ── WebSocket motor server ───────────────────────────────────────────────────
 
 async def motor_handler(ws: websockets.ServerConnection) -> None:
@@ -107,13 +121,24 @@ async def send_motors(left: int, center: int, right: int) -> None:
 async def run_yolo_loop() -> None:
     """
     Read frames from the camera, run YOLO detection, update current_detections,
-    and fire the correct haptic motor with a per-label cooldown.
+    and fire the correct haptic motor when all detection gates pass.
+
+    Motor-fire gates (all must be true):
+      1. label is in OBSTACLE_CLASSES (motor_intensity > 0)
+      2. bounding box covers ≥ PROXIMITY_THRESHOLD of frame area
+      3. confidence ≥ HIGH_PRIORITY_CONF (high-priority) or OBSTACLE_CONF (other)
+      4. label appeared in ≥ PERSISTENCE_FRAMES consecutive frames
+      5. per-label COOLDOWN_SECONDS has elapsed since last fire
+
+    ALL detections (regardless of gates) are written to current_detections
+    so Jacob's voice thread can answer questions about anything in view.
 
     Uses run_in_executor for cap.read() so the blocking camera call doesn't
     stall the asyncio event loop (and the WebSocket server).
     """
     loop = asyncio.get_event_loop()
     last_fired: dict[str, float] = {}
+    detection_streak: dict[str, int] = {}  # consecutive frames each label has appeared
 
     while True:
         ret, frame = await loop.run_in_executor(None, cap.read)
@@ -124,17 +149,37 @@ async def run_yolo_loop() -> None:
         frame = cv2.resize(frame, (320, 240))
         results = model(frame, conf=YOLO_CONF)
         fw = frame.shape[1]
+        fh = frame.shape[0]
 
-        # Update shared list so Jacob's voice thread can read it
+        # Update shared list so Jacob's voice thread can read it.
+        # Also build box_meta (not put in current_detections — Jacob expects 'label direction').
         current_detections.clear()
+        box_meta: dict[str, dict] = {}  # label → {x1, y1, x2, y2, conf}
         for box in results[0].boxes:
-            cx = float((box.xyxy[0][0] + box.xyxy[0][2]) / 2)
+            x1, y1, x2, y2 = (int(v) for v in box.xyxy[0])
+            cx = float((x1 + x2) / 2)
             direction = get_direction(cx, fw)
             label = model.names[int(box.cls)]
+            conf = float(box.conf[0])
             current_detections.append(f'{label} {direction}')
+            # Keep highest-confidence box if label appears more than once in a frame
+            if label not in box_meta or conf > box_meta[label]['conf']:
+                box_meta[label] = {'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'conf': conf}
 
-        # Fire motors — obstacle classes only, with cooldown to stop spam.
-        # ALL detections are already in current_detections above for Jacob's thread.
+        # Decay streak — zero out any label absent this frame
+        detected_labels = {det.rsplit(' ', 1)[0] for det in current_detections}
+        for lbl in list(detection_streak.keys()):
+            if lbl not in detected_labels:
+                detection_streak[lbl] = 0
+        # Increment streak for every label seen this frame
+        for lbl in detected_labels:
+            detection_streak[lbl] = detection_streak.get(lbl, 0) + 1
+
+        # Fire motors — all three gates must pass in addition to the existing cooldown.
+        # Gate 1: label is in OBSTACLE_CLASSES (motor_intensity returns non-zero).
+        # Gate 2: bounding box is large enough (is_close_enough).
+        # Gate 3: confidence meets per-class threshold.
+        # Gate 4: label has appeared in at least PERSISTENCE_FRAMES consecutive frames.
         now = time.time()
         for det in current_detections:
             # rsplit from right once: handles multi-word labels like "dining table"
@@ -142,6 +187,25 @@ async def run_yolo_loop() -> None:
             intensity = motor_intensity(label)
             if intensity == 0:
                 continue  # non-hazard — skip motor entirely
+
+            meta = box_meta.get(label)
+            if meta is None:
+                continue
+
+            # Gate 2 — proximity
+            if not is_close_enough(meta['x1'], meta['y1'], meta['x2'], meta['y2'], fw, fh):
+                continue
+
+            # Gate 3 — confidence threshold varies by priority tier
+            required_conf = HIGH_PRIORITY_CONF if label in HIGH_PRIORITY_CLASSES else OBSTACLE_CONF
+            if meta['conf'] < required_conf:
+                continue
+
+            # Gate 4 — persistence (suppresses single-frame false positives)
+            if detection_streak.get(label, 0) < PERSISTENCE_FRAMES:
+                continue
+
+            # All gates passed — apply cooldown then fire
             if label not in last_fired or now - last_fired[label] > COOLDOWN_SECONDS:
                 last_fired[label] = now
                 if direction == 'left':
