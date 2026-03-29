@@ -10,7 +10,7 @@ SpeechRecognition==3.10.4   # Google Speech Recognition wrapper
 pyaudio==0.2.14             # microphone input
 
 # ── Wake Word Detection ──────────────────────────────────────
-pvporcupine==3.0.2          # Picovoice wake word engine
+openwakeword                # open-source wake word engine, no API key needed
 
 # ── AI Response Generation ───────────────────────────────────
 openai==1.40.0              # GPT-4o mini + OpenAI TTS
