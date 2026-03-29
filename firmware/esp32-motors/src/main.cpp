@@ -5,11 +5,11 @@
 
 // ── WiFi credentials ─────────────────────────────────────────────────────────
 // TODO: set these to the network both the ESP32 and laptop are on
-const char *WIFI_SSID = "Hub Tampa";
-const char *WIFI_PASSWORD = "";
+const char *WIFI_SSID = "Deshawn's Iphone";
+const char *WIFI_PASSWORD = "deeznuts";
 
 // ── Laptop WebSocket server ───────────────────────────────────────────────────
-const char *WS_HOST = "10.22.34.170"; // TODO: change to laptop IP on your network
+const char *WS_HOST = "10.247.157.123"; // TODO: change to laptop IP on your network
 const uint16_t WS_PORT = 8765;
 const char *WS_PATH = "/";
 
