@@ -49,3 +49,14 @@ PERSISTENCE_FRAMES: int = 1            # label must appear this many consecutive
 DEPTH_ENABLED: bool = True             # use MiDaS depth map instead of bounding-box area
 DEPTH_THRESHOLD: float = 0.55          # normalized depth score (0–1) to trigger motors
                                         # higher = object must be closer; tune this value
+DEPTH_EVERY_N_FRAMES: int = 3          # run MiDaS once every N frames, reuse in between
+                                        # lower = more responsive but slower; 2–4 is a good range
+DEPTH_INTENSITY_CURVE: float = 2.0     # power applied to depth→intensity mapping (1.0 = linear)
+                                        # higher = intensity only spikes when very close, drops fast at medium range
+
+# ── Motor PWM scaling (depth-based) ──────────────────────────────────────────
+# Intensity linearly scales with depth score: min at DEPTH_THRESHOLD, max at 1.0.
+HIGH_PRIORITY_MAX: int = 255           # PWM when high-priority object is at closest range
+HIGH_PRIORITY_MIN: int = 160           # PWM when high-priority object just crosses threshold
+OBSTACLE_MAX: int = 200                # PWM when standard obstacle is at closest range
+OBSTACLE_MIN: int = 100                # PWM when standard obstacle just crosses threshold

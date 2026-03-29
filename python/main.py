@@ -28,7 +28,9 @@ try:
     from config import (ESP32_CAM_IP, MOTOR_WS_PORT, YOLO_CONF, COOLDOWN_SECONDS,
                         OBSTACLE_CLASSES, HIGH_PRIORITY_CLASSES,
                         PROXIMITY_THRESHOLD, HIGH_PRIORITY_CONF, OBSTACLE_CONF,
-                        PERSISTENCE_FRAMES, DEPTH_ENABLED, DEPTH_THRESHOLD)
+                        PERSISTENCE_FRAMES, DEPTH_ENABLED, DEPTH_THRESHOLD,
+                        HIGH_PRIORITY_MAX, HIGH_PRIORITY_MIN, OBSTACLE_MAX, OBSTACLE_MIN,
+                        DEPTH_EVERY_N_FRAMES, DEPTH_INTENSITY_CURVE)
     from shared import current_detections
 except ImportError:
     # TODO: Remove these once Jaden creates config.py and shared.py
@@ -73,18 +75,30 @@ def speak(text: str) -> None:
 
 # ── Obstacle filter ──────────────────────────────────────────────────────────
 
-def motor_intensity(label: str) -> int:
-    """Return the motor PWM intensity for a given YOLO label.
+def motor_intensity(label: str, depth_score: float = 1.0) -> int:
+    """Return PWM intensity for a label scaled by how close the object is.
 
-    Returns 255 for HIGH_PRIORITY_CLASSES (immediate collision risk),
-    200 for other OBSTACLE_CLASSES (navigational hazards), and
-    0 for everything else (non-hazard — motors stay silent).
+    Linearly interpolates between *_MIN (object just crossed DEPTH_THRESHOLD)
+    and *_MAX (object is as close as MiDaS can measure, depth score ~1.0).
+    Returns 0 for non-hazard labels — use this as the obstacle gate check too.
+
+    Args:
+        label: YOLO class name.
+        depth_score: normalized MiDaS depth (0–1, higher = closer). Defaults to
+                     1.0 so calling with no depth arg still returns the max value
+                     (useful for the initial gate check).
     """
     if label in HIGH_PRIORITY_CLASSES:
-        return 255
-    if label in OBSTACLE_CLASSES:
-        return 200
-    return 0
+        max_i, min_i = HIGH_PRIORITY_MAX, HIGH_PRIORITY_MIN
+    elif label in OBSTACLE_CLASSES:
+        max_i, min_i = OBSTACLE_MAX, OBSTACLE_MIN
+    else:
+        return 0
+
+    # t=0 at DEPTH_THRESHOLD, t=1 at depth score 1.0
+    t = (depth_score - DEPTH_THRESHOLD) / max(1.0 - DEPTH_THRESHOLD, 1e-6)
+    t = max(0.0, min(1.0, t)) ** DEPTH_INTENSITY_CURVE  # power curve: higher = steeper drop-off
+    return int(min_i + t * (max_i - min_i))
 
 
 # ── Direction logic ──────────────────────────────────────────────────────────
@@ -186,6 +200,8 @@ async def run_yolo_loop() -> None:
     loop = asyncio.get_event_loop()
     last_fired: dict[str, float] = {}
     detection_streak: dict[str, int] = {}  # consecutive frames each label has appeared
+    frame_count: int = 0
+    cached_depth_map: np.ndarray | None = None
 
     while True:
         ret, frame = await loop.run_in_executor(None, cap.read)
@@ -196,8 +212,13 @@ async def run_yolo_loop() -> None:
         frame = cv2.resize(frame, (320, 240))
         results = model(frame, conf=YOLO_CONF)
 
-        # Compute depth map once per frame (reused for every detection below)
-        depth_map: np.ndarray | None = compute_depth_map(frame) if DEPTH_ENABLED else None
+        # Recompute depth every N frames in a thread so it never blocks the event loop
+        frame_count += 1
+        if DEPTH_ENABLED and frame_count % DEPTH_EVERY_N_FRAMES == 0:
+            cached_depth_map = await loop.run_in_executor(None, compute_depth_map, frame)
+        depth_map = cached_depth_map
+        if depth_map is not None:
+            cv2.imshow('Depth', depth_map)
         fw = frame.shape[1]
         fh = frame.shape[0]
 
@@ -234,20 +255,23 @@ async def run_yolo_loop() -> None:
         for det in current_detections:
             # rsplit from right once: handles multi-word labels like "dining table"
             label, direction = det.rsplit(' ', 1)
-            intensity = motor_intensity(label)
-            if intensity == 0:
-                continue  # non-hazard — skip motor entirely
+            # Gate 1 — is this label an obstacle at all?
+            if motor_intensity(label) == 0:
+                continue
 
             meta = box_meta.get(label)
             if meta is None:
                 continue
 
-            # Gate 2 — proximity (MiDaS depth when enabled, bounding-box area as fallback)
+            # Gate 2 — proximity; capture depth_score for intensity scaling below
             if DEPTH_ENABLED and depth_map is not None:
-                if sample_depth(depth_map, meta['x1'], meta['y1'], meta['x2'], meta['y2']) < DEPTH_THRESHOLD:
+                depth_score = sample_depth(depth_map, meta['x1'], meta['y1'], meta['x2'], meta['y2'])
+                if depth_score < DEPTH_THRESHOLD:
                     continue
-            elif not is_close_enough(meta['x1'], meta['y1'], meta['x2'], meta['y2'], fw, fh):
-                continue
+            else:
+                if not is_close_enough(meta['x1'], meta['y1'], meta['x2'], meta['y2'], fw, fh):
+                    continue
+                depth_score = 1.0  # fallback: no depth info, use max intensity
 
             # Gate 3 — confidence threshold varies by priority tier
             required_conf = HIGH_PRIORITY_CONF if label in HIGH_PRIORITY_CLASSES else OBSTACLE_CONF
@@ -258,7 +282,8 @@ async def run_yolo_loop() -> None:
             if detection_streak.get(label, 0) < PERSISTENCE_FRAMES:
                 continue
 
-            # All gates passed — apply cooldown then fire
+            # All gates passed — scale intensity by depth then apply cooldown and fire
+            intensity = motor_intensity(label, depth_score)
             if label not in last_fired or now - last_fired[label] > COOLDOWN_SECONDS:
                 last_fired[label] = now
                 if direction == 'left':
@@ -279,6 +304,21 @@ async def run_yolo_loop() -> None:
         cv2.putText(annotated, 'LEFT',   (10, 25),           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 100, 100), 2)
         cv2.putText(annotated, 'CENTER', (third + 10, 25),   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 255, 100), 2)
         cv2.putText(annotated, 'RIGHT',  (2*third + 10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 100, 255), 2)
+
+        # Depth debug overlay — shows each box's depth score and whether it passed the gate
+        if depth_map is not None:
+            for label, meta in box_meta.items():
+                score = sample_depth(depth_map, meta['x1'], meta['y1'], meta['x2'], meta['y2'])
+                passed = score >= DEPTH_THRESHOLD
+                pwm = motor_intensity(label, score)
+                color = (0, 255, 0) if passed else (0, 100, 255)  # green = firing, orange = blocked
+                cv2.putText(annotated, f'{label}: d={score:.2f} pwm={pwm}',
+                            (meta['x1'], meta['y2'] + 15),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
+
+        # Depth map side window — brighter = closer to camera
+        if depth_map is not None:
+            cv2.imshow('Depth Map', depth_map)
 
         cv2.imshow('Echolocation Vest', annotated)
         if cv2.waitKey(1) == ord('q'):
