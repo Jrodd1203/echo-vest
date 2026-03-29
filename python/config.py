@@ -8,7 +8,7 @@ Import from here — never hardcode these values elsewhere.
 ESP32_CAM_IP: str = "10.22.26.167"      # ESP32-CAM stream address
 MOTOR_WS_PORT: int = 8765               # WebSocket port for motor controller ESP32
 VOICE_WS_PORT: int = 8766               # WebSocket port for voice module
-FRONTEND_PORT: int = 8080               # HTTP port for the web dashboard
+FRONTEND_PORT: int = 8081               # HTTP port for the web dashboard (8080 is reserved by Colab)
 
 # ── YOLO ──────────────────────────────────────────────────────────────────────
 YOLO_CONF: float = 0.5                  # minimum confidence threshold for detections
