@@ -23,8 +23,8 @@ pygame==2.6.0               # plays OpenAI TTS audio output (.mp3)
 
 # ── Utilities ────────────────────────────────────────────────
 python-dotenv==1.0.1        # loads API keys from .env file
-numpy==1.26.4 
+numpy==1.26.4               # array ops (used by YOLO, cv2, and MiDaS depth map)
+timm                        # MiDaS_small backbone dependency (loaded via torch.hub)
 
 google-genai
 elevenlabs
-              # array ops (used internally by YOLO + cv2)

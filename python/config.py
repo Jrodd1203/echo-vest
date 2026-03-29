@@ -38,8 +38,14 @@ HIGH_PRIORITY_CLASSES: set[str] = {
 }
 
 # ── Detection gate thresholds ─────────────────────────────────────────────────
-# Motors only fire when ALL three conditions below pass (plus cooldown).
-PROXIMITY_THRESHOLD: float = 0.08      # bounding box must cover ≥8 % of frame area
+# Motors only fire when ALL conditions below pass (plus cooldown).
+PROXIMITY_THRESHOLD: float = 0.08      # fallback: bounding box must cover ≥8% of frame area
+                                        # (only used when DEPTH_ENABLED = False)
 HIGH_PRIORITY_CONF: float = 0.45      # confidence required for HIGH_PRIORITY_CLASSES
 OBSTACLE_CONF: float = 0.45           # confidence required for other OBSTACLE_CLASSES
 PERSISTENCE_FRAMES: int = 1            # label must appear this many consecutive frames
+
+# ── Monocular depth estimation (MiDaS) ───────────────────────────────────────
+DEPTH_ENABLED: bool = True             # use MiDaS depth map instead of bounding-box area
+DEPTH_THRESHOLD: float = 0.55          # normalized depth score (0–1) to trigger motors
+                                        # higher = object must be closer; tune this value

@@ -11,6 +11,8 @@ import os
 import time
 
 import cv2
+import numpy as np
+import torch
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
 from elevenlabs import stream
@@ -26,7 +28,7 @@ try:
     from config import (ESP32_CAM_IP, MOTOR_WS_PORT, YOLO_CONF, COOLDOWN_SECONDS,
                         OBSTACLE_CLASSES, HIGH_PRIORITY_CLASSES,
                         PROXIMITY_THRESHOLD, HIGH_PRIORITY_CONF, OBSTACLE_CONF,
-                        PERSISTENCE_FRAMES)
+                        PERSISTENCE_FRAMES, DEPTH_ENABLED, DEPTH_THRESHOLD)
     from shared import current_detections
 except ImportError:
     # TODO: Remove these once Jaden creates config.py and shared.py
@@ -35,6 +37,17 @@ except ImportError:
 
 # ── Model + camera setup ─────────────────────────────────────────────────────
 model = YOLO('yolov8n.pt')
+
+# ── MiDaS depth model setup ──────────────────────────────────────────────────
+_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+if DEPTH_ENABLED:
+    _midas: torch.nn.Module = torch.hub.load(
+        'intel-isl/MiDaS', 'MiDaS_small', verbose=False
+    )
+    _midas.to(_device).eval()
+    _midas_transform = torch.hub.load(
+        'intel-isl/MiDaS', 'transforms', verbose=False
+    ).small_transform
 
 # Using webcam for now — swap to ESP32-CAM URL once Jaden gives you the IP:
 cap = cv2.VideoCapture(f'http://{ESP32_CAM_IP}/stream')
@@ -90,12 +103,46 @@ def is_close_enough(x1: int, y1: int, x2: int, y2: int,
                     frame_width: int, frame_height: int) -> bool:
     """Return True if bounding box occupies at least PROXIMITY_THRESHOLD of frame area.
 
+    Fallback used when DEPTH_ENABLED is False.
     Compares box area (pixels²) against total frame area scaled by PROXIMITY_THRESHOLD.
-    Keeps motors quiet for tiny far-away detections that pose no immediate hazard.
     """
     box_area = (x2 - x1) * (y2 - y1)
     frame_area = frame_width * frame_height
     return box_area >= PROXIMITY_THRESHOLD * frame_area
+
+
+def compute_depth_map(frame: np.ndarray) -> np.ndarray:
+    """Run MiDaS on a BGR frame and return a normalized depth map (0–1, higher = closer).
+
+    MiDaS outputs inverse depth (disparity), so larger values mean the object
+    is closer to the camera. The output is min-max normalized per frame so the
+    threshold in config.py is stable across lighting conditions.
+    """
+    img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    input_tensor = _midas_transform(img_rgb).to(_device)
+    with torch.no_grad():
+        raw = _midas(input_tensor)
+        raw = torch.nn.functional.interpolate(
+            raw.unsqueeze(1),
+            size=frame.shape[:2],
+            mode='bicubic',
+            align_corners=False,
+        ).squeeze()
+    depth = raw.cpu().numpy()
+    d_min, d_max = depth.min(), depth.max()
+    if d_max > d_min:
+        return (depth - d_min) / (d_max - d_min)
+    return np.zeros_like(depth)
+
+
+def sample_depth(depth_map: np.ndarray, x1: int, y1: int, x2: int, y2: int) -> float:
+    """Return the median normalized depth score inside a bounding box.
+
+    Uses median rather than mean to ignore partial occlusions and noisy edges.
+    Returns 0.0 if the crop is empty (degenerate box).
+    """
+    roi = depth_map[y1:y2, x1:x2]
+    return float(np.median(roi)) if roi.size > 0 else 0.0
 
 
 # ── WebSocket motor server ───────────────────────────────────────────────────
@@ -148,6 +195,9 @@ async def run_yolo_loop() -> None:
         # Resize before YOLO — speeds up inference significantly
         frame = cv2.resize(frame, (320, 240))
         results = model(frame, conf=YOLO_CONF)
+
+        # Compute depth map once per frame (reused for every detection below)
+        depth_map: np.ndarray | None = compute_depth_map(frame) if DEPTH_ENABLED else None
         fw = frame.shape[1]
         fh = frame.shape[0]
 
@@ -192,8 +242,11 @@ async def run_yolo_loop() -> None:
             if meta is None:
                 continue
 
-            # Gate 2 — proximity
-            if not is_close_enough(meta['x1'], meta['y1'], meta['x2'], meta['y2'], fw, fh):
+            # Gate 2 — proximity (MiDaS depth when enabled, bounding-box area as fallback)
+            if DEPTH_ENABLED and depth_map is not None:
+                if sample_depth(depth_map, meta['x1'], meta['y1'], meta['x2'], meta['y2']) < DEPTH_THRESHOLD:
+                    continue
+            elif not is_close_enough(meta['x1'], meta['y1'], meta['x2'], meta['y2'], fw, fh):
                 continue
 
             # Gate 3 — confidence threshold varies by priority tier
