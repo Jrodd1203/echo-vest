@@ -23,7 +23,8 @@ load_dotenv()
 # These imports work once Jaden creates config.py and shared.py.
 # The fallback values below let you run solo in the meantime.
 try:
-    from config import ESP32_CAM_IP, MOTOR_WS_PORT, YOLO_CONF, COOLDOWN_SECONDS
+    from config import (ESP32_CAM_IP, MOTOR_WS_PORT, YOLO_CONF, COOLDOWN_SECONDS,
+                        OBSTACLE_CLASSES, HIGH_PRIORITY_CLASSES)
     from shared import current_detections
 except ImportError:
     # TODO: Remove these once Jaden creates config.py and shared.py
@@ -53,6 +54,22 @@ def speak(text: str) -> None:
         text=text,
     )
     stream(audio_stream)
+
+
+# ── Obstacle filter ──────────────────────────────────────────────────────────
+
+def motor_intensity(label: str) -> int:
+    """Return the motor PWM intensity for a given YOLO label.
+
+    Returns 255 for HIGH_PRIORITY_CLASSES (immediate collision risk),
+    200 for other OBSTACLE_CLASSES (navigational hazards), and
+    0 for everything else (non-hazard — motors stay silent).
+    """
+    if label in HIGH_PRIORITY_CLASSES:
+        return 255
+    if label in OBSTACLE_CLASSES:
+        return 200
+    return 0
 
 
 # ── Direction logic ──────────────────────────────────────────────────────────
@@ -116,19 +133,23 @@ async def run_yolo_loop() -> None:
             label = model.names[int(box.cls)]
             current_detections.append(f'{label} {direction}')
 
-        # Fire motors — one motor per detection, with cooldown to stop spam
+        # Fire motors — obstacle classes only, with cooldown to stop spam.
+        # ALL detections are already in current_detections above for Jacob's thread.
         now = time.time()
         for det in current_detections:
-            # rsplit from right once: handles multi-word labels like "traffic light"
+            # rsplit from right once: handles multi-word labels like "dining table"
             label, direction = det.rsplit(' ', 1)
+            intensity = motor_intensity(label)
+            if intensity == 0:
+                continue  # non-hazard — skip motor entirely
             if label not in last_fired or now - last_fired[label] > COOLDOWN_SECONDS:
                 last_fired[label] = now
                 if direction == 'left':
-                    await send_motors(200, 0, 0)
+                    await send_motors(intensity, 0, 0)
                 elif direction == 'center':
-                    await send_motors(0, 200, 0)
+                    await send_motors(0, intensity, 0)
                 else:
-                    await send_motors(0, 0, 200)
+                    await send_motors(0, 0, intensity)
 
         # Show annotated frame
         annotated = results[0].plot()

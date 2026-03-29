@@ -19,3 +19,20 @@ COOLDOWN_SECONDS: float = 2.0           # minimum seconds between motor triggers
 MOTOR_LEFT: int = 23
 MOTOR_CENTER: int = 22
 MOTOR_RIGHT: int = 21
+
+# ── Obstacle classification filter ────────────────────────────────────────────
+# Class names match YOLOv8n output exactly (COCO dataset labels).
+# Only detections whose label appears in OBSTACLE_CLASSES will fire the motors.
+# ALL detections are still written to current_detections for Jacob's voice thread.
+OBSTACLE_CLASSES: set[str] = {
+    'person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck',
+    'dog', 'cat',
+    'chair', 'dining table', 'couch', 'potted plant', 'bed', 'toilet',
+    'fire hydrant', 'stop sign', 'bench', 'suitcase', 'backpack',
+}
+
+# Subset of OBSTACLE_CLASSES — immediate collision risks get intensity 255.
+# Everything in OBSTACLE_CLASSES but NOT here gets intensity 200.
+HIGH_PRIORITY_CLASSES: set[str] = {
+    'person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck', 'dog',
+}
