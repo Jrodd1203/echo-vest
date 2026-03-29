@@ -1,18 +1,74 @@
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* ── Design tokens ────────────────────────────────────────────────────────── */
+:root {
+  --bg:             #0a0a0f;
+  --surface:        #0f1016;
+  --surface-raised: #13141f;
+  --border:         rgba(255, 255, 255, 0.07);
+  --border-strong:  rgba(255, 255, 255, 0.13);
+  --border-accent:  rgba(0, 212, 255, 0.28);
 
-body {
-  background: #080b0f;
-  color: #e2e8f0;
-  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-  min-height: 100vh;
+  --text:           #dde3ee;
+  --text-muted:     #526070;
+  --text-dim:       #2c3444;
+
+  --accent:         #00d4ff;
+  --accent-dim:     rgba(0, 212, 255, 0.08);
+  --accent-mid:     rgba(0, 212, 255, 0.18);
+
+  --ok:             #16c784;
+  --ok-dim:         rgba(22, 199, 132, 0.12);
+  --warn:           #f5a623;
+  --warn-dim:       rgba(245, 166, 35, 0.12);
+  --danger:         #ff3f3f;
+  --danger-dim:     rgba(255, 63, 63, 0.12);
+
+  --font-mono: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+  --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
+
+  --radius:   4px;
+  --radius-sm: 2px;
 }
 
-:root {
-  --green: #00ff88;
-  --red: #ff4455;
-  --blue: #38bdf8;
-  --yellow: #fbbf24;
-  --card: #0f1117;
-  --border: #1e2530;
-  --muted: #4a5568;
+/* ── Reset ────────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 3px; height: 3px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: var(--border-strong); border-radius: 1px; }
+
+/* ── Keyframes ────────────────────────────────────────────────────────────── */
+@keyframes status-live {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.35; }
+}
+
+@keyframes motor-pulse {
+  0%   { background-color: var(--accent-mid); }
+  50%  { background-color: var(--accent-dim); }
+  100% { background-color: var(--accent-mid); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
