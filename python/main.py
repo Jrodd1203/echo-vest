@@ -53,9 +53,9 @@ if DEPTH_ENABLED:
         'intel-isl/MiDaS', 'transforms', verbose=False
     ).small_transform
 
-# Camera source: CAMERA_URL env var → ESP32-CAM stream → local webcam fallback
+# Camera source: CAMERA_URL env var → ESP32-CAM IP from config
 _camera_url = os.environ.get('CAMERA_URL') or f'http://{ESP32_CAM_IP}/stream'
-cap = cv2.VideoCapture(_camera_url if os.environ.get('CAMERA_URL') else 0)
+cap = cv2.VideoCapture(_camera_url)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # minimize internal buffer
 
 
@@ -253,6 +253,11 @@ async def run_yolo_loop() -> None:
 
         # Resize before YOLO — speeds up inference significantly
         frame = cv2.resize(frame, (320, 240))
+
+        # Store raw frame for the dashboard's clean feed (no annotations)
+        _, raw_buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+        shared.latest_raw_frame = raw_buf.tobytes()
+
         results = model(frame, conf=YOLO_CONF)
 
         # Recompute depth every N frames in a thread so it never blocks the event loop

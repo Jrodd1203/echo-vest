@@ -50,6 +50,15 @@ async def video_stream() -> StreamingResponse:
     )
 
 
+@app.get('/raw')
+async def raw_stream() -> StreamingResponse:
+    """Stream raw (unannotated) camera frames as MJPEG."""
+    return StreamingResponse(
+        _mjpeg_generator('latest_raw_frame'),
+        media_type='multipart/x-mixed-replace; boundary=frame',
+    )
+
+
 @app.get('/depth')
 async def depth_stream() -> StreamingResponse:
     """Stream the MiDaS depth map as MJPEG."""

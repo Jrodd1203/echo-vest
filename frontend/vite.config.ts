@@ -6,7 +6,8 @@ export default defineConfig({
   server: {
     proxy: {
       '/stream': 'http://localhost:8081',
-      '/depth': 'http://localhost:8081',
+      '/raw':    'http://localhost:8081',
+      '/depth':  'http://localhost:8081',
       '/ws': { target: 'ws://localhost:8081', ws: true },
     },
   },

@@ -14,6 +14,7 @@ current_detections: list[str] = []
 
 # ── Frontend shared state (written by main.py, read by frontend.py) ───────────
 latest_frame: bytes = b''        # JPEG bytes of latest annotated frame, written by main.py
+latest_raw_frame: bytes = b''    # JPEG bytes of raw (unannotated) camera frame, written by main.py
 latest_depth_frame: bytes = b''  # JPEG bytes of depth map, written by main.py
 motor_connected: bool = False    # True when an ESP32 motor client is connected
 cam_connected: bool = False      # True when the camera stream is returning valid frames
