@@ -3,17 +3,19 @@ ultralytics==8.3.0          # YOLOv8 object detection
 opencv-python==4.10.0.84    # camera stream + frame processing
 
 # ── WebSocket Server ─────────────────────────────────────────
-websockets==12.0            # async WebSocket server (laptop ↔ ESP32)
+websockets>=13.0,<15.1      # async WebSocket server (laptop ↔ ESP32)
 
 # ── Speech Recognition ───────────────────────────────────────
-SpeechRecognition==3.10.4   # Google Speech Recognition wrapper
+SpeechRecognition==3.10.4   # Google SR (used for wake word detection only)
 pyaudio==0.2.14             # microphone input
+deepgram-sdk                # Deepgram STT (used for question transcription)
 
 # ── Wake Word Detection ──────────────────────────────────────
 openwakeword                # open-source wake word engine, no API key needed
 
 # ── AI Response Generation ───────────────────────────────────
 openai==1.40.0              # GPT-4o mini + OpenAI TTS
+httpx<0.28.0                # pin to avoid 'proxies' kwarg removal in httpx>=0.28
 
 # ── Text-to-Speech (fallback, offline) ───────────────────────
 pyttsx3==2.90               # offline TTS fallback if OpenAI is unavailable

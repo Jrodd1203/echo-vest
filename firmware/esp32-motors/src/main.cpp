@@ -15,8 +15,8 @@ const char *WS_PATH = "/";
 
 // ── Motor GPIO pins ───────────────────────────────────────────────────────────
 const int MOTOR_LEFT = 23;   // left haptic motor via 2N3904 transistor
-const int MOTOR_CENTER = 22; // center haptic motor via 2N3904 transistor
-const int MOTOR_RIGHT = 21;  // right haptic motor via 2N3904 transistor
+const int MOTOR_CENTER = 21; // center haptic motor via 2N3904 transistor
+const int MOTOR_RIGHT = 22;  // right haptic motor via 2N3904 transistor
 
 // ── PWM config ────────────────────────────────────────────────────────────────
 const int PWM_FREQ = 1000;    // Hz
