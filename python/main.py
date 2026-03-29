@@ -37,8 +37,8 @@ except ImportError:
 model = YOLO('yolov8n.pt')
 
 # Using webcam for now — swap to ESP32-CAM URL once Jaden gives you the IP:
-#cap = cv2.VideoCapture(f'http://{ESP32_CAM_IP}/stream')
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(f'http://{ESP32_CAM_IP}/stream')
+#cap = cv2.VideoCapture(0)
 
 motor_clients: set = set()
 
