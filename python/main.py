@@ -72,7 +72,7 @@ def get_direction(cx: float, frame_width: int) -> str:
 
 # ── WebSocket motor server ───────────────────────────────────────────────────
 
-async def motor_handler(ws: websockets.WebSocketServerProtocol) -> None:
+async def motor_handler(ws: websockets.ServerConnection) -> None:
     """Register an ESP32 motor client and keep the connection open until it drops."""
     motor_clients.add(ws)
     try:
