@@ -14,7 +14,8 @@ FRONTEND_PORT: int = 8081               # HTTP port for the web dashboard (8080 
 YOLO_CONF: float = 0.5                  # minimum confidence threshold for detections
 
 # ── Haptic feedback ───────────────────────────────────────────────────────────
-COOLDOWN_SECONDS: float = 2.0           # minimum seconds between motor triggers per label
+COOLDOWN_SECONDS: float = 2.0           # minimum seconds between TTS triggers per label (voice only)
+MOTOR_HOLD_SECONDS: float = 1.5         # seconds to keep a motor zone on after detection fades
 
 # ── Motor GPIO pins (on motor controller ESP32) ───────────────────────────────
 MOTOR_LEFT: int = 23

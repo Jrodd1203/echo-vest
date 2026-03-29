@@ -9,6 +9,7 @@ import asyncio
 import json
 import os
 import threading
+
 import time
 
 import cv2
@@ -26,12 +27,13 @@ load_dotenv()
 # These imports work once Jaden creates config.py and shared.py.
 # The fallback values below let you run solo in the meantime.
 try:
-    from config import (ESP32_CAM_IP, MOTOR_WS_PORT, YOLO_CONF, COOLDOWN_SECONDS,
+    from config import (ESP32_CAM_IP, MOTOR_WS_PORT, YOLO_CONF,
                         OBSTACLE_CLASSES, HIGH_PRIORITY_CLASSES,
                         PROXIMITY_THRESHOLD, HIGH_PRIORITY_CONF, OBSTACLE_CONF,
                         PERSISTENCE_FRAMES, DEPTH_ENABLED, DEPTH_THRESHOLD,
                         HIGH_PRIORITY_MAX, HIGH_PRIORITY_MIN, OBSTACLE_MAX, OBSTACLE_MIN,
-                        DEPTH_EVERY_N_FRAMES, DEPTH_INTENSITY_CURVE, FRONTEND_PORT)
+                        DEPTH_EVERY_N_FRAMES, DEPTH_INTENSITY_CURVE, FRONTEND_PORT,
+                        MOTOR_HOLD_SECONDS)
     import shared
     from shared import current_detections
 except ImportError:
@@ -238,8 +240,9 @@ async def run_yolo_loop() -> None:
     stall the asyncio event loop (and the WebSocket server).
     """
     loop = asyncio.get_event_loop()
-    last_fired: dict[str, float] = {}
     detection_streak: dict[str, int] = {}  # consecutive frames each label has appeared
+    zone_hold_until: dict[str, float] = {'left': 0.0, 'center': 0.0, 'right': 0.0}
+    zone_last_intensity: dict[str, int] = {'left': 0, 'center': 0, 'right': 0}
     frame_count: int = 0
     cached_depth_map: np.ndarray | None = None
 
@@ -258,7 +261,7 @@ async def run_yolo_loop() -> None:
         _, raw_buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
         shared.latest_raw_frame = raw_buf.tobytes()
 
-        results = model(frame, conf=YOLO_CONF)
+        results = await loop.run_in_executor(None, lambda: model(frame, conf=YOLO_CONF))
 
         # Recompute depth every N frames in a thread so it never blocks the event loop
         frame_count += 1
@@ -278,7 +281,8 @@ async def run_yolo_loop() -> None:
             direction = get_direction(cx, fw)
             label = model.names[int(box.cls)]
             conf = float(box.conf[0])
-            current_detections.append(f'{label} {direction}')
+            if label in OBSTACLE_CLASSES:
+                current_detections.append(f'{label} {direction}')
             # Keep highest-confidence box if label appears more than once in a frame
             if label not in box_meta or conf > box_meta[label]['conf']:
                 box_meta[label] = {'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2, 'conf': conf}
@@ -292,24 +296,21 @@ async def run_yolo_loop() -> None:
         for lbl in detected_labels:
             detection_streak[lbl] = detection_streak.get(lbl, 0) + 1
 
-        # Fire motors — all three gates must pass in addition to the existing cooldown.
+        # Build desired per-zone intensities for this frame.
+        # State-based: send every frame so motors turn off immediately when objects leave.
         # Gate 1: label is in OBSTACLE_CLASSES (motor_intensity returns non-zero).
-        # Gate 2: bounding box is large enough (is_close_enough).
+        # Gate 2: proximity via depth score or bounding-box area fallback.
         # Gate 3: confidence meets per-class threshold.
         # Gate 4: label has appeared in at least PERSISTENCE_FRAMES consecutive frames.
-        now = time.time()
+        # Highest intensity wins when multiple objects occupy the same zone.
+        zone_intensity: dict[str, int] = {'left': 0, 'center': 0, 'right': 0}
         for det in current_detections:
-            # rsplit from right once: handles multi-word labels like "dining table"
             label, direction = det.rsplit(' ', 1)
-            # Gate 1 — is this label an obstacle at all?
             if motor_intensity(label) == 0:
                 continue
-
             meta = box_meta.get(label)
             if meta is None:
                 continue
-
-            # Gate 2 — proximity; capture depth_score for intensity scaling below
             if DEPTH_ENABLED and depth_map is not None:
                 depth_score = sample_depth(depth_map, meta['x1'], meta['y1'], meta['x2'], meta['y2'])
                 if depth_score < DEPTH_THRESHOLD:
@@ -317,27 +318,31 @@ async def run_yolo_loop() -> None:
             else:
                 if not is_close_enough(meta['x1'], meta['y1'], meta['x2'], meta['y2'], fw, fh):
                     continue
-                depth_score = 1.0  # fallback: no depth info, use max intensity
-
-            # Gate 3 — confidence threshold varies by priority tier
+                depth_score = 1.0
             required_conf = HIGH_PRIORITY_CONF if label in HIGH_PRIORITY_CLASSES else OBSTACLE_CONF
             if meta['conf'] < required_conf:
                 continue
-
-            # Gate 4 — persistence (suppresses single-frame false positives)
             if detection_streak.get(label, 0) < PERSISTENCE_FRAMES:
                 continue
-
-            # All gates passed — scale intensity by depth then apply cooldown and fire
             intensity = motor_intensity(label, depth_score)
-            if label not in last_fired or now - last_fired[label] > COOLDOWN_SECONDS:
-                last_fired[label] = now
-                if direction == 'left':
-                    await send_motors(intensity, 0, 0)
-                elif direction == 'center':
-                    await send_motors(0, intensity, 0)
-                else:
-                    await send_motors(0, 0, intensity)
+            if direction in zone_intensity:
+                zone_intensity[direction] = max(zone_intensity[direction], intensity)
+
+        # Apply hold: keep each zone on for MOTOR_HOLD_SECONDS after detection fades.
+        # This prevents stuttering when YOLO briefly drops a detection.
+        now = time.time()
+        final_intensity: dict[str, int] = {}
+        for zone in ('left', 'center', 'right'):
+            if zone_intensity[zone] > 0:
+                zone_hold_until[zone] = now + MOTOR_HOLD_SECONDS
+                zone_last_intensity[zone] = zone_intensity[zone]
+                final_intensity[zone] = zone_intensity[zone]
+            elif now < zone_hold_until[zone]:
+                final_intensity[zone] = zone_last_intensity[zone]
+            else:
+                final_intensity[zone] = 0
+
+        await send_motors(final_intensity['left'], final_intensity['center'], final_intensity['right'])
 
         # Show annotated frame
         annotated = results[0].plot()
