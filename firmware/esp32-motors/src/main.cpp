@@ -9,7 +9,7 @@ const char *WIFI_SSID = "Hub Tampa";
 const char *WIFI_PASSWORD = "";
 
 // ── Laptop WebSocket server ───────────────────────────────────────────────────
-const char *WS_HOST = "10.22.38.42"; // TODO: change to laptop IP on your network
+const char *WS_HOST = "10.22.34.170"; // TODO: change to laptop IP on your network
 const uint16_t WS_PORT = 8765;
 const char *WS_PATH = "/";
 
