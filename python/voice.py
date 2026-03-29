@@ -3,6 +3,7 @@ import threading
 import time
 
 import speech_recognition as sr
+from deepgram import DeepgramClient
 from openai import OpenAI
 from elevenlabs.client import ElevenLabs
 from elevenlabs import stream
@@ -17,6 +18,7 @@ load_dotenv()
 
 openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 elevenlabs_client = ElevenLabs(api_key=os.environ["ELEVENLABS_API_KEY"])
+deepgram_client = DeepgramClient(api_key=os.environ["DEEPGRAM_API_KEY"])
 
 r = sr.Recognizer()
 r.pause_threshold = 0.5
@@ -34,32 +36,42 @@ def speak(text: str) -> None:
         )
         stream(audio_stream)
     except Exception as e:
+        import traceback
         print(f"[SPEAK ERROR] {type(e).__name__}: {e}")
+        traceback.print_exc()
 
 
 def listen_once() -> str | None:
-    """Record one utterance and transcribe it with Google Speech Recognition."""
+    """Record one utterance and transcribe it with Deepgram."""
     with sr.Microphone() as source:
         print("Listening...")
         try:
             audio = r.listen(source, timeout=5, phrase_time_limit=6)
-            return r.recognize_google(audio).lower()
-        except Exception:
+        except sr.WaitTimeoutError:
             return None
+
+    try:
+        response = deepgram_client.listen.v1.media.transcribe_file(
+            request=audio.get_wav_data(),
+            model="nova-2",
+            language="en",
+        )
+        transcript = response.results.channels[0].alternatives[0].transcript
+        return transcript.strip().lower() or None
+    except Exception as e:
+        print(f"[DEEPGRAM ERROR] {e}")
+        return None
 
 
 def ask_and_speak(detections: list, question: str) -> None:
     """Get GPT-4o mini response and speak it via ElevenLabs."""
-    prompt = f"""You help blind people navigate safely. Be extremely brief.
-Current detections: {detections}
-User asked: '{question}'
-Respond in one short sentence, 10 words max."""
+    prompt = f"Blind navigation assistant. Detections: {detections}. Question: {question}. Reply in 8 words max."
 
     try:
         response = openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=30,
+            max_tokens=20,
         )
         reply = response.choices[0].message.content.strip()
         print(f"\n>>> GPT: {reply}\n")
@@ -103,7 +115,7 @@ def voice_loop() -> None:
                     audio = r.listen(source, timeout=2, phrase_time_limit=2)
                     heard = r.recognize_google(audio).lower()
                     print(f"Heard: {heard}")
-                    if "hey echo" in heard:
+                    if any(w in heard for w in ("hey echo", "hi echo", "hello echo", "hi", "hello")):
                         print("Wake word detected!")
                         break
                 except sr.UnknownValueError:
@@ -122,7 +134,9 @@ def voice_loop() -> None:
 
             print(f"You said: {text}")
             if is_stop_command(text):
-                speak("Goodbye! Say Hey Echo whenever you need me.")
+                print("Saying goodbye...")
+                speak("Goodbye!")
+                print("Goodbye spoken.")
                 break  # exit conversation, go back to wake word
 
             ask_and_speak(current_detections, text)
