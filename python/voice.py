@@ -10,9 +10,12 @@ from elevenlabs import stream
 from dotenv import load_dotenv
 
 try:
+    import shared
     from shared import current_detections
 except ImportError:
-    current_detections: list[str] = []  # TODO: remove once Jaden adds this to shared.py
+    import types
+    shared = types.SimpleNamespace(voice_status='idle', chat_messages=[])
+    current_detections: list[str] = []
 
 load_dotenv()
 
@@ -41,14 +44,17 @@ def speak(text: str) -> None:
         traceback.print_exc()
 
 
-def listen_once() -> str | None:
-    """Record one utterance and transcribe it with Deepgram."""
-    with sr.Microphone() as source:
-        print("Listening...")
-        try:
-            audio = r.listen(source, timeout=5, phrase_time_limit=6)
-        except sr.WaitTimeoutError:
-            return None
+def listen_once(source: sr.AudioSource) -> str | None:
+    """Record one utterance from an already-open microphone and transcribe with Deepgram.
+
+    Accepts a persistent microphone source so we avoid the cold-start delay that
+    clips the first syllable when opening a new Microphone() each call.
+    """
+    print("Listening...")
+    try:
+        audio = r.listen(source, timeout=5, phrase_time_limit=6)
+    except sr.WaitTimeoutError:
+        return None
 
     try:
         response = deepgram_client.listen.v1.media.transcribe_file(
@@ -64,7 +70,10 @@ def listen_once() -> str | None:
 
 
 def ask_and_speak(detections: list, question: str) -> None:
-    """Get GPT-4o mini response and speak it via ElevenLabs."""
+    """Get GPT-4o mini response, speak it, and log both sides to shared chat."""
+    shared.chat_messages.append({'role': 'user', 'text': question, 'timestamp': time.time()})
+    shared.voice_status = 'processing'
+
     prompt = f"Blind navigation assistant. Detections: {detections}. Question: {question}. Reply in 8 words max."
 
     try:
@@ -75,11 +84,14 @@ def ask_and_speak(detections: list, question: str) -> None:
         )
         reply = response.choices[0].message.content.strip()
         print(f"\n>>> GPT: {reply}\n")
+        shared.chat_messages.append({'role': 'assistant', 'text': reply, 'timestamp': time.time()})
         speak(reply)
     except Exception as e:
         import traceback
         print(f"\n[ASK ERROR] {type(e).__name__}: {e}")
         traceback.print_exc()
+    finally:
+        shared.voice_status = 'listening'
 
 
 STOP_PHRASES = {
@@ -108,6 +120,7 @@ def voice_loop() -> None:
 
     while True:
         # ── Wake word ──────────────────────────────────────────
+        shared.voice_status = 'idle'
         print("Waiting for wake word 'Hey Echo'...")
         with sr.Microphone() as source:
             while True:
@@ -125,22 +138,26 @@ def voice_loop() -> None:
                 except Exception as e:
                     print(f"Wake word error: {type(e).__name__}: {e}")
 
-        # ── Active conversation loop — keeps listening until stop command ──
+        # ── Active conversation loop — mic stays open to avoid cold-start clipping ──
         speak("Yes?")
-        while True:
-            text = listen_once()
-            if not text:
-                break  # timed out — go back to wake word
+        time.sleep(0.8)  # let TTS finish fully before opening mic
+        with sr.Microphone() as source:
+            r.adjust_for_ambient_noise(source, duration=0.2)  # recalibrate after TTS
+            while True:
+                shared.voice_status = 'listening'
+                text = listen_once(source)
+                if not text:
+                    break  # timed out — go back to wake word
 
-            print(f"You said: {text}")
-            if is_stop_command(text):
-                print("Saying goodbye...")
-                speak("Goodbye!")
-                print("Goodbye spoken.")
-                break  # exit conversation, go back to wake word
+                print(f"You said: {text}")
+                if is_stop_command(text):
+                    print("Saying goodbye...")
+                    speak("Goodbye!")
+                    print("Goodbye spoken.")
+                    break  # exit conversation, go back to wake word
 
-            ask_and_speak(current_detections, text)
-            time.sleep(0.3)  # tiny pause so mic doesn't catch TTS tail
+                ask_and_speak(current_detections, text)
+                time.sleep(0.8)  # wait for TTS to fully finish before listening again
 
 
 voice_thread = threading.Thread(target=voice_loop, daemon=True)
