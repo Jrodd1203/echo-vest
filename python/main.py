@@ -8,6 +8,7 @@ speak() is imported by Jacob — never rename or remove it.
 import asyncio
 import json
 import os
+import threading
 import time
 
 import cv2
@@ -53,7 +54,42 @@ if DEPTH_ENABLED:
 
 # Using webcam for now — swap to ESP32-CAM URL once Jaden gives you the IP:
 cap = cv2.VideoCapture(f'http://{ESP32_CAM_IP}/stream')
+cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # minimize internal buffer
 #cap = cv2.VideoCapture(0)
+
+
+# ── Background frame grabber ──────────────────────────────────────────────────
+
+class FrameGrabber(threading.Thread):
+    """Continuously reads frames from the camera in a background thread.
+
+    Always keeps only the latest frame so the YOLO loop never processes
+    stale buffered frames. This is the primary fix for stream latency.
+    """
+
+    def __init__(self, cap: cv2.VideoCapture) -> None:
+        super().__init__(daemon=True)
+        self._cap = cap
+        self._ret: bool = False
+        self._frame: np.ndarray | None = None
+        self._lock = threading.Lock()
+
+    def run(self) -> None:
+        """Grab frames as fast as the camera sends them, keeping only the latest."""
+        while True:
+            ret, frame = self._cap.read()
+            with self._lock:
+                self._ret = ret
+                self._frame = frame
+
+    def read(self) -> tuple[bool, np.ndarray | None]:
+        """Return the most recently grabbed frame. Non-blocking."""
+        with self._lock:
+            return self._ret, self._frame
+
+
+grabber = FrameGrabber(cap)
+grabber.start()
 
 motor_clients: set = set()
 
@@ -204,9 +240,10 @@ async def run_yolo_loop() -> None:
     cached_depth_map: np.ndarray | None = None
 
     while True:
-        ret, frame = await loop.run_in_executor(None, cap.read)
-        if not ret:
-            break
+        ret, frame = grabber.read()
+        if not ret or frame is None:
+            await asyncio.sleep(0.01)  # camera not ready yet, yield and retry
+            continue
 
         # Resize before YOLO — speeds up inference significantly
         frame = cv2.resize(frame, (320, 240))
