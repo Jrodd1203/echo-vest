@@ -225,3 +225,7 @@ build/
 
 # VS Code
 .vscode/settings.json*.pt
+
+# Frontend
+frontend/node_modules/
+frontend/dist/

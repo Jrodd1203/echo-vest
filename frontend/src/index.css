@@ -1,0 +1,18 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #080b0f;
+  color: #e2e8f0;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  min-height: 100vh;
+}
+
+:root {
+  --green: #00ff88;
+  --red: #ff4455;
+  --blue: #38bdf8;
+  --yellow: #fbbf24;
+  --card: #0f1117;
+  --border: #1e2530;
+  --muted: #4a5568;
+}

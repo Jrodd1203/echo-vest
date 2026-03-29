@@ -30,3 +30,7 @@ timm                        # MiDaS_small backbone dependency (loaded via torch.
 
 google-genai
 elevenlabs
+
+# ── Web Dashboard ─────────────────────────────────────────────
+fastapi
+uvicorn
