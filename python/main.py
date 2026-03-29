@@ -27,10 +27,7 @@ try:
     from shared import current_detections
 except ImportError:
     # TODO: Remove these once Jaden creates config.py and shared.py
-    ESP32_CAM_IP = '192.168.x.x'   # Jaden will give you the real IP
-    MOTOR_WS_PORT = 8765
-    YOLO_CONF = 0.5
-    COOLDOWN_SECONDS = 2.0
+    
     current_detections: list[str] = []
 
 # ── Model + camera setup ─────────────────────────────────────────────────────

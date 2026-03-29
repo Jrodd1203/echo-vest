@@ -16,6 +16,6 @@ YOLO_CONF: float = 0.5                  # minimum confidence threshold for detec
 COOLDOWN_SECONDS: float = 2.0           # minimum seconds between motor triggers per label
 
 # ── Motor GPIO pins (on motor controller ESP32) ───────────────────────────────
-MOTOR_LEFT: int = 25
-MOTOR_CENTER: int = 26
-MOTOR_RIGHT: int = 27
+MOTOR_LEFT: int = 23
+MOTOR_CENTER: int = 22
+MOTOR_RIGHT: int = 21
