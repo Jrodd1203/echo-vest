@@ -31,7 +31,8 @@ try:
                         PROXIMITY_THRESHOLD, HIGH_PRIORITY_CONF, OBSTACLE_CONF,
                         PERSISTENCE_FRAMES, DEPTH_ENABLED, DEPTH_THRESHOLD,
                         HIGH_PRIORITY_MAX, HIGH_PRIORITY_MIN, OBSTACLE_MAX, OBSTACLE_MIN,
-                        DEPTH_EVERY_N_FRAMES, DEPTH_INTENSITY_CURVE)
+                        DEPTH_EVERY_N_FRAMES, DEPTH_INTENSITY_CURVE, FRONTEND_PORT)
+    import shared
     from shared import current_detections
 except ImportError:
     # TODO: Remove these once Jaden creates config.py and shared.py
@@ -52,10 +53,10 @@ if DEPTH_ENABLED:
         'intel-isl/MiDaS', 'transforms', verbose=False
     ).small_transform
 
-# Using webcam for now — swap to ESP32-CAM URL once Jaden gives you the IP:
-cap = cv2.VideoCapture(f'http://{ESP32_CAM_IP}/stream')
+# Camera source: CAMERA_URL env var → ESP32-CAM stream → local webcam fallback
+_camera_url = os.environ.get('CAMERA_URL') or f'http://{ESP32_CAM_IP}/stream'
+cap = cv2.VideoCapture(_camera_url if os.environ.get('CAMERA_URL') else 0)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # minimize internal buffer
-#cap = cv2.VideoCapture(0)
 
 
 # ── Background frame grabber ──────────────────────────────────────────────────
@@ -200,10 +201,13 @@ def sample_depth(depth_map: np.ndarray, x1: int, y1: int, x2: int, y2: int) -> f
 async def motor_handler(ws: websockets.ServerConnection) -> None:
     """Register an ESP32 motor client and keep the connection open until it drops."""
     motor_clients.add(ws)
+    shared.motor_connected = True
     try:
         await ws.wait_closed()
     finally:
         motor_clients.discard(ws)
+        if not motor_clients:
+            shared.motor_connected = False
 
 
 async def send_motors(left: int, center: int, right: int) -> None:
@@ -242,8 +246,10 @@ async def run_yolo_loop() -> None:
     while True:
         ret, frame = grabber.read()
         if not ret or frame is None:
+            shared.cam_connected = False
             await asyncio.sleep(0.01)  # camera not ready yet, yield and retry
             continue
+        shared.cam_connected = True
 
         # Resize before YOLO — speeds up inference significantly
         frame = cv2.resize(frame, (320, 240))
@@ -254,8 +260,6 @@ async def run_yolo_loop() -> None:
         if DEPTH_ENABLED and frame_count % DEPTH_EVERY_N_FRAMES == 0:
             cached_depth_map = await loop.run_in_executor(None, compute_depth_map, frame)
         depth_map = cached_depth_map
-        if depth_map is not None:
-            cv2.imshow('Depth', depth_map)
         fw = frame.shape[1]
         fh = frame.shape[0]
 
@@ -353,13 +357,23 @@ async def run_yolo_loop() -> None:
                             (meta['x1'], meta['y2'] + 15),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
 
-        # Depth map side window — brighter = closer to camera
-        if depth_map is not None:
-            cv2.imshow('Depth Map', depth_map)
+        # Encode annotated frame to JPEG and push to shared state for the web dashboard
+        _, buf = cv2.imencode('.jpg', annotated, [cv2.IMWRITE_JPEG_QUALITY, 70])
+        shared.latest_frame = buf.tobytes()
 
-        cv2.imshow('Echolocation Vest', annotated)
-        if cv2.waitKey(1) == ord('q'):
-            break
+        # Encode depth map to JPEG if available
+        if depth_map is not None:
+            depth_uint8 = (depth_map * 255).astype(np.uint8)
+            _, depth_buf = cv2.imencode('.jpg', depth_uint8, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            shared.latest_depth_frame = depth_buf.tobytes()
+
+        # Local display windows — skipped when SKIP_DISPLAY is set (e.g. Colab/headless)
+        if not os.environ.get('SKIP_DISPLAY'):
+            if depth_map is not None:
+                cv2.imshow('Depth Map', depth_map)
+            cv2.imshow('Echolocation Vest', annotated)
+            if cv2.waitKey(1) == ord('q'):
+                break
 
         await asyncio.sleep(0)  # yield to event loop so WebSocket messages process
 
@@ -367,15 +381,18 @@ async def run_yolo_loop() -> None:
 # ── Entry point ──────────────────────────────────────────────────────────────
 
 async def main() -> None:
-    """Start the WebSocket motor server and the YOLO loop concurrently."""
+    """Start the WebSocket motor server, YOLO loop, and web dashboard concurrently."""
+    from frontend import run_frontend_server
     async with websockets.serve(motor_handler, '0.0.0.0', MOTOR_WS_PORT):
         print(f'Motor WebSocket server running on port {MOTOR_WS_PORT}')
-        await run_yolo_loop()
+        print(f'Dashboard running on http://localhost:{FRONTEND_PORT}')
+        await asyncio.gather(run_yolo_loop(), run_frontend_server())
 
     cap.release()
     cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
-    import voice  # noqa: F401 — imported for side effect (starts voice WS thread on port 8766)
+    if not os.environ.get('SKIP_VOICE'):
+        import voice  # noqa: F401 — imported for side effect (starts voice WS thread on port 8766)
     asyncio.run(main())
