@@ -40,6 +40,6 @@ HIGH_PRIORITY_CLASSES: set[str] = {
 # ── Detection gate thresholds ─────────────────────────────────────────────────
 # Motors only fire when ALL three conditions below pass (plus cooldown).
 PROXIMITY_THRESHOLD: float = 0.08      # bounding box must cover ≥8 % of frame area
-HIGH_PRIORITY_CONF: float = 0.70       # confidence required for HIGH_PRIORITY_CLASSES
-OBSTACLE_CONF: float = 0.55            # confidence required for other OBSTACLE_CLASSES
-PERSISTENCE_FRAMES: int = 3            # label must appear this many consecutive frames
+HIGH_PRIORITY_CONF: float = 0.45      # confidence required for HIGH_PRIORITY_CLASSES
+OBSTACLE_CONF: float = 0.45           # confidence required for other OBSTACLE_CLASSES
+PERSISTENCE_FRAMES: int = 1            # label must appear this many consecutive frames
