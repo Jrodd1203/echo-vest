@@ -2,11 +2,14 @@ import io
 import os
 import threading
 
+import numpy as np
+import pyaudio
 import speech_recognition as sr
 from openai import OpenAI
 from elevenlabs.client import ElevenLabs
 from elevenlabs import stream
 from dotenv import load_dotenv
+from openwakeword.model import Model
 
 try:
     from shared import current_detections
@@ -21,6 +24,14 @@ elevenlabs_client = ElevenLabs(api_key=os.environ["ELEVENLABS_API_KEY"])
 r = sr.Recognizer()
 r.pause_threshold = 0.5       # seconds of silence before end-of-speech (default 0.8)
 r.non_speaking_duration = 0.3 # seconds of silence at start before giving up (default 0.5)
+
+# Set WAKE_WORD_MODEL in .env to path of a custom hey-echo.onnx model.
+# If not set, falls back to the built-in "hey_jarvis" model for testing.
+_WAKE_WORD_MODEL: str | None = os.environ.get("WAKE_WORD_MODEL")
+_WAKE_WORD_THRESHOLD: float = float(os.environ.get("WAKE_WORD_THRESHOLD", "0.5"))
+
+_AUDIO_RATE: int = 16000   # required by openwakeword
+_AUDIO_CHUNK: int = 1280   # 80ms frames at 16kHz, recommended by openwakeword
 
 
 def speak(text: str) -> None:
@@ -91,12 +102,47 @@ def is_stop_command(text: str) -> bool:
     return any(phrase in text for phrase in STOP_PHRASES)
 
 
+def wait_for_wake_word() -> None:
+    """Block until the wake word is detected using openwakeword."""
+    if _WAKE_WORD_MODEL:
+        oww = Model(wakeword_models=[_WAKE_WORD_MODEL], inference_framework="onnx")
+        label = "Hey Echo"
+    else:
+        # Fallback: built-in hey_jarvis model while custom hey-echo.onnx is not yet trained
+        oww = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
+        label = "Hey Jarvis (test fallback)"
+
+    pa = pyaudio.PyAudio()
+    stream = pa.open(
+        rate=_AUDIO_RATE,
+        channels=1,
+        format=pyaudio.paInt16,
+        input=True,
+        frames_per_buffer=_AUDIO_CHUNK,
+    )
+    print(f"Waiting for wake word '{label}'...")
+    try:
+        while True:
+            raw = stream.read(_AUDIO_CHUNK, exception_on_overflow=False)
+            audio_chunk = np.frombuffer(raw, dtype=np.int16)
+            scores = oww.predict(audio_chunk)
+            if any(score >= _WAKE_WORD_THRESHOLD for score in scores.values()):
+                print("Wake word detected!")
+                break
+    finally:
+        stream.stop_stream()
+        stream.close()
+        pa.terminate()
+
+
 def voice_loop() -> None:
-    """Continuously listen, transcribe with Whisper, get GPT response, and stream TTS.
+    """Wait for wake word, then transcribe with Whisper, get GPT response, and stream TTS.
     Exits cleanly when the user says a stop phrase."""
-    print("Voice loop started — listening for speech...")
+    print("Voice assistant ready — say 'Hey Echo' to activate.")
     while True:
         try:
+            wait_for_wake_word()
+            speak("Hello! How can I help you?")
             text = listen_once()
             if text:
                 print(f"You said: {text}")
