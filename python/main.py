@@ -13,7 +13,7 @@ import time
 import cv2
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
-from elevenlabs import play
+from elevenlabs import stream
 from ultralytics import YOLO
 import websockets
 
@@ -37,8 +37,8 @@ except ImportError:
 model = YOLO('yolov8n.pt')
 
 # Using webcam for now — swap to ESP32-CAM URL once Jaden gives you the IP:
-#   cap = cv2.VideoCapture(f'http://{ESP32_CAM_IP}/stream')
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(f'http://{ESP32_CAM_IP}/stream')
+#cap = cv2.VideoCapture(0)
 
 motor_clients: set = set()
 
@@ -50,12 +50,12 @@ elevenlabs_client = ElevenLabs(api_key=os.environ['ELEVENLABS_API_KEY'])
 
 def speak(text: str) -> None:
     """Speak text aloud using ElevenLabs TTS via elevenlabs.play()."""
-    audio = elevenlabs_client.text_to_speech.convert(
+    audio_stream = elevenlabs_client.text_to_speech.stream(
         voice_id='JBFqnCBsd6RMkjVDRZzb',
         model_id='eleven_turbo_v2_5',
         text=text,
     )
-    play(audio)
+    stream(audio_stream)
 
 
 # ── Direction logic ──────────────────────────────────────────────────────────

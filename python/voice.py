@@ -102,6 +102,7 @@ def is_stop_command(text: str) -> bool:
     return any(phrase in text for phrase in STOP_PHRASES)
 
 
+
 def wait_for_wake_word() -> None:
     """Block until the wake word is detected using openwakeword."""
     if _WAKE_WORD_MODEL:
