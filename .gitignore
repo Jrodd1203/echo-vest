@@ -224,4 +224,8 @@ build/
 .DS_Store
 
 # VS Code
-.vscode/settings.json
+.vscode/settings.json*.pt
+
+# Frontend
+frontend/node_modules/
+frontend/dist/

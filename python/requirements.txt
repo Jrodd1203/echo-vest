@@ -3,17 +3,19 @@ ultralytics==8.3.0          # YOLOv8 object detection
 opencv-python==4.10.0.84    # camera stream + frame processing
 
 # ── WebSocket Server ─────────────────────────────────────────
-websockets==12.0            # async WebSocket server (laptop ↔ ESP32)
+websockets>=13.0,<15.1      # async WebSocket server (laptop ↔ ESP32)
 
 # ── Speech Recognition ───────────────────────────────────────
-SpeechRecognition==3.10.4   # Google Speech Recognition wrapper
+SpeechRecognition==3.10.4   # Google SR (used for wake word detection only)
 pyaudio==0.2.14             # microphone input
+deepgram-sdk                # Deepgram STT (used for question transcription)
 
 # ── Wake Word Detection ──────────────────────────────────────
-pvporcupine==3.0.2          # Picovoice wake word engine
+openwakeword                # open-source wake word engine, no API key needed
 
 # ── AI Response Generation ───────────────────────────────────
 openai==1.40.0              # GPT-4o mini + OpenAI TTS
+httpx<0.28.0                # pin to avoid 'proxies' kwarg removal in httpx>=0.28
 
 # ── Text-to-Speech (fallback, offline) ───────────────────────
 pyttsx3==2.90               # offline TTS fallback if OpenAI is unavailable
@@ -23,4 +25,12 @@ pygame==2.6.0               # plays OpenAI TTS audio output (.mp3)
 
 # ── Utilities ────────────────────────────────────────────────
 python-dotenv==1.0.1        # loads API keys from .env file
-numpy==1.26.4               # array ops (used internally by YOLO + cv2)
+numpy==1.26.4               # array ops (used by YOLO, cv2, and MiDaS depth map)
+timm                        # MiDaS_small backbone dependency (loaded via torch.hub)
+
+google-genai
+elevenlabs
+
+# ── Web Dashboard ─────────────────────────────────────────────
+fastapi
+uvicorn
